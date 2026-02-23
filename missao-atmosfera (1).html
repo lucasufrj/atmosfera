@@ -1,0 +1,511 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Missão Atmosfera</title>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700;900&family=Nunito:wght@400;700;800&display=swap" rel="stylesheet">
+
+    <!-- =====================================================
+         FIREBASE SDK
+    ====================================================== -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+        import { getFirestore, collection, addDoc, getDocs, query, orderBy, limit, serverTimestamp }
+            from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+
+        // =====================================================
+        // ⚠️  SUBSTITUA PELOS SEUS DADOS DO FIREBASE ABAIXO ⚠️
+        // =====================================================
+        const firebaseConfig = {
+            apiKey:            "COLE_SUA_API_KEY_AQUI",
+            authDomain:        "COLE_SEU_AUTH_DOMAIN_AQUI",
+            projectId:         "COLE_SEU_PROJECT_ID_AQUI",
+            storageBucket:     "COLE_SEU_STORAGE_BUCKET_AQUI",
+            messagingSenderId: "COLE_SEU_MESSAGING_SENDER_ID_AQUI",
+            appId:             "COLE_SEU_APP_ID_AQUI"
+        };
+        // =====================================================
+
+        const app = initializeApp(firebaseConfig);
+        const db  = getFirestore(app);
+
+        // Expõe para o restante do script (não-module)
+        window._db         = db;
+        window._collection = collection;
+        window._addDoc     = addDoc;
+        window._getDocs    = getDocs;
+        window._query      = query;
+        window._orderBy    = orderBy;
+        window._limit      = limit;
+        window._serverTimestamp = serverTimestamp;
+        window._firebaseReady = true;
+    </script>
+
+    <style>
+        :root {
+            --sky1: #0a0e27;
+            --sky2: #0d2b6b;
+            --sky3: #1976a8;
+            --accent: #00e5ff;
+            --gold: #ffd700;
+            --green: #00e676;
+            --red: #ff1744;
+            --card: rgba(8, 20, 60, 0.88);
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            font-family: 'Nunito', sans-serif;
+            min-height: 100vh;
+            background: linear-gradient(to top, var(--sky1) 0%, var(--sky2) 50%, var(--sky3) 100%);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            overflow: hidden;
+            color: white;
+        }
+
+        /* ── Stars ── */
+        .stars { position: fixed; inset: 0; pointer-events: none; z-index: 0; }
+        .star {
+            position: absolute; border-radius: 50%;
+            background: white; opacity: 0;
+            animation: twinkle var(--dur, 3s) ease-in-out infinite;
+            animation-delay: var(--delay, 0s);
+        }
+        @keyframes twinkle { 0%,100%{opacity:0} 50%{opacity:var(--op,0.8)} }
+
+        /* ── Clouds ── */
+        .cloud {
+            position: fixed; font-size: 48px; opacity: 0.15;
+            animation: drift var(--spd, 30s) linear infinite;
+            top: var(--top, 20%); z-index: 0;
+        }
+        @keyframes drift { from { transform: translateX(-15vw); } to { transform: translateX(110vw); } }
+
+        /* ── Balloon ── */
+        #balloon {
+            position: fixed; left: 6%; font-size: 80px;
+            bottom: 18%; transition: bottom 1s cubic-bezier(.4,1.6,.6,1);
+            z-index: 5; filter: drop-shadow(0 0 12px rgba(0,229,255,0.5));
+            animation: sway 3s ease-in-out infinite;
+        }
+        @keyframes sway { 0%,100%{transform:rotate(-4deg)} 50%{transform:rotate(4deg)} }
+
+        /* ── Container ── */
+        #game-container {
+            position: relative; z-index: 10;
+            width: 96%; max-width: 600px;
+            background: var(--card);
+            backdrop-filter: blur(16px);
+            border: 1px solid rgba(0,229,255,0.25);
+            border-radius: 24px;
+            padding: 30px 28px;
+            text-align: center;
+            box-shadow: 0 0 60px rgba(0,100,200,0.4), 0 0 0 1px rgba(255,255,255,0.05);
+        }
+
+        h1 {
+            font-family: 'Orbitron', sans-serif;
+            font-size: clamp(1.4rem, 5vw, 2rem);
+            color: var(--accent);
+            text-shadow: 0 0 20px rgba(0,229,255,0.7);
+            letter-spacing: 2px;
+            margin-bottom: 6px;
+        }
+        h2 { font-family: 'Orbitron', sans-serif; font-size: 1.3rem; color: var(--gold); margin-bottom: 14px; }
+
+        .subtitle { font-size: 0.9rem; color: rgba(255,255,255,0.55); margin-bottom: 20px; }
+
+        /* ── Color Picker ── */
+        .color-picker { display: flex; justify-content: center; gap: 12px; margin: 16px 0; }
+        .color-dot {
+            width: 34px; height: 34px; border-radius: 50%; cursor: pointer;
+            border: 3px solid transparent; transition: 0.2s;
+        }
+        .color-dot:hover { transform: scale(1.25); border-color: white; }
+
+        /* ── Form inputs ── */
+        input, select {
+            width: 100%; padding: 12px 16px; margin-bottom: 12px;
+            background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.15);
+            border-radius: 10px; color: white; font-family: 'Nunito', sans-serif; font-size: 1rem;
+            outline: none; transition: border-color 0.2s;
+        }
+        input:focus, select:focus { border-color: var(--accent); }
+        select option { background: #0d2b6b; color: white; }
+
+        /* ── Buttons ── */
+        .btn {
+            display: block; width: 100%; padding: 14px;
+            margin: 8px 0; border: none; border-radius: 12px;
+            cursor: pointer; font-weight: 800; font-size: 1rem;
+            font-family: 'Nunito', sans-serif; transition: 0.2s; letter-spacing: 0.5px;
+        }
+        .btn-launch {
+            background: linear-gradient(135deg, #00b4d8, #0077b6);
+            color: white; box-shadow: 0 4px 20px rgba(0,180,216,0.4);
+        }
+        .btn-launch:hover { transform: translateY(-2px); box-shadow: 0 8px 30px rgba(0,180,216,0.6); }
+
+        .btn-option {
+            background: rgba(255,255,255,0.08); color: white;
+            border: 1px solid rgba(255,255,255,0.15); text-align: left; padding: 13px 18px;
+        }
+        .btn-option:hover:not(:disabled) { background: rgba(0,229,255,0.15); border-color: var(--accent); transform: translateX(4px); }
+        .btn-option:disabled { cursor: default; }
+        .btn-option.correct { background: rgba(0,230,118,0.2); border-color: var(--green); color: var(--green); }
+        .btn-option.wrong   { background: rgba(255,23,68,0.2);  border-color: var(--red);   color: var(--red);   }
+
+        .btn-secondary {
+            background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.7);
+            border: 1px solid rgba(255,255,255,0.1); font-size: 0.85rem;
+        }
+        .btn-danger { background: rgba(255,23,68,0.15); color: var(--red); border: 1px solid rgba(255,23,68,0.3); font-size: 0.8rem; }
+
+        /* ── Progress bar ── */
+        #progress-wrap {
+            background: rgba(255,255,255,0.08); border-radius: 99px;
+            height: 6px; margin-bottom: 18px; overflow: hidden;
+        }
+        #progress-bar {
+            height: 100%; background: linear-gradient(90deg, var(--accent), var(--gold));
+            border-radius: 99px; transition: width 0.4s ease;
+        }
+
+        /* ── Question ── */
+        #news-flash {
+            min-height: 28px; font-size: 1rem; font-weight: 700;
+            color: var(--gold); margin-bottom: 10px;
+            text-shadow: 0 0 8px rgba(255,215,0,0.5);
+        }
+        #question-text {
+            font-size: clamp(1rem, 3.5vw, 1.15rem); min-height: 70px;
+            line-height: 1.5; margin-bottom: 16px; color: rgba(255,255,255,0.95);
+        }
+        .q-counter { font-size: 0.8rem; color: rgba(255,255,255,0.4); margin-top: 12px; }
+
+        /* ── Score display ── */
+        .score-badge {
+            display: inline-block; background: rgba(0,229,255,0.12);
+            border: 1px solid rgba(0,229,255,0.3); border-radius: 99px;
+            padding: 4px 14px; font-size: 0.85rem; color: var(--accent); margin-bottom: 16px;
+        }
+
+        /* ── Ranking ── */
+        #ranking-tables { max-height: 280px; overflow-y: auto; margin-bottom: 16px; }
+        table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+        thead tr { background: rgba(0,229,255,0.1); }
+        th { padding: 8px 6px; color: var(--accent); font-family: 'Orbitron', sans-serif; font-size: 0.7rem; letter-spacing: 1px; }
+        td { padding: 7px 6px; border-bottom: 1px solid rgba(255,255,255,0.06); }
+        tr.me td { color: var(--gold); font-weight: 800; }
+        tr:nth-child(1) td:first-child::before { content: "🥇 "; }
+        tr:nth-child(2) td:first-child::before { content: "🥈 "; }
+        tr:nth-child(3) td:first-child::before { content: "🥉 "; }
+
+        .loading-msg { color: rgba(255,255,255,0.4); font-size: 0.9rem; padding: 20px; }
+
+        .hidden { display: none !important; }
+
+        /* ── Final score screen ── */
+        #final-score { font-size: 3rem; font-family: 'Orbitron', sans-serif; color: var(--gold); text-shadow: 0 0 30px rgba(255,215,0,0.6); }
+        .final-msg { font-size: 1.1rem; margin: 8px 0 20px; color: rgba(255,255,255,0.7); }
+    </style>
+</head>
+<body>
+
+    <!-- Stars -->
+    <div class="stars" id="stars"></div>
+
+    <!-- Clouds -->
+    <div class="cloud" style="--top:8%;  --spd:35s;                  ">☁️</div>
+    <div class="cloud" style="--top:22%; --spd:50s; animation-delay:-10s;">☁️</div>
+    <div class="cloud" style="--top:40%; --spd:40s; animation-delay:-20s;">🌤️</div>
+
+    <!-- Balloon -->
+    <div id="balloon">🎈</div>
+
+    <div id="game-container">
+
+        <!-- ── Setup ── -->
+        <div id="setup-screen">
+            <h1>🎈 MISSÃO ATMOSFERA</h1>
+            <p class="subtitle">Desafio de Ciências · 7º Ano</p>
+
+            <div class="color-picker">
+                <div class="color-dot" style="background:#87CEEB" title="Céu Diurno"   onclick="changeBg('#87CEEB','#0052D4')"></div>
+                <div class="color-dot" style="background:#ff7e5f" title="Pôr do Sol"   onclick="changeBg('#ff7e5f','#b34700')"></div>
+                <div class="color-dot" style="background:#0a0e27" title="Noite"        onclick="changeBg('#0a0e27','#000000')"></div>
+                <div class="color-dot" style="background:#4b0082" title="Aurora"       onclick="changeBg('#4b0082','#000000')"></div>
+            </div>
+
+            <input type="text" id="player-name" placeholder="Nome do(a) aluno(a)" maxlength="40">
+            <select id="player-class">
+                <option value="" disabled selected>Escolha a Turma</option>
+                <option value="7A">7º Ano A</option>
+                <option value="7B">7º Ano B</option>
+                <option value="7C">7º Ano C</option>
+            </select>
+
+            <button class="btn btn-launch" onclick="startGame()">🚀 DECOLAR!</button>
+            <button class="btn btn-secondary" onclick="openRankingOnly()">🏆 Ver Ranking</button>
+        </div>
+
+        <!-- ── Quiz ── -->
+        <div id="quiz-screen" class="hidden">
+            <div id="progress-wrap"><div id="progress-bar" style="width:0%"></div></div>
+            <div class="score-badge">⭐ <span id="score-live">0</span> / 25</div>
+            <div id="news-flash"></div>
+            <div id="question-text"></div>
+            <div id="options-container"></div>
+            <p class="q-counter">Questão <span id="current-q">1</span> de 25</p>
+        </div>
+
+        <!-- ── Finish ── -->
+        <div id="finish-screen" class="hidden">
+            <h2>🏁 Fim de Missão!</h2>
+            <div id="final-score"></div>
+            <p class="final-msg" id="final-msg"></p>
+            <button class="btn btn-launch" onclick="goToRanking()">🏆 Ver Ranking</button>
+        </div>
+
+        <!-- ── Ranking ── -->
+        <div id="ranking-screen" class="hidden">
+            <h2>🏆 Quadro de Honra</h2>
+            <div id="ranking-tables"><p class="loading-msg">Carregando…</p></div>
+            <button class="btn btn-launch"     onclick="location.reload()">🔄 Novo Voo</button>
+            <button class="btn btn-secondary"  onclick="goBackToSetup()">← Voltar</button>
+            <button class="btn btn-danger"     onclick="clearRanking()">🗑 Zerar Ranking (professor)</button>
+        </div>
+
+    </div>
+
+    <script>
+    // ── Generate stars ──────────────────────────────────────────
+    (function(){
+        const wrap = document.getElementById('stars');
+        for(let i = 0; i < 80; i++){
+            const s = document.createElement('div'); s.className = 'star';
+            const sz = Math.random()*2.5+0.8;
+            s.style.cssText = `width:${sz}px;height:${sz}px;top:${Math.random()*100}%;left:${Math.random()*100}%;
+                --dur:${2+Math.random()*4}s;--delay:${Math.random()*5}s;--op:${0.4+Math.random()*0.6}`;
+            wrap.appendChild(s);
+        }
+    })();
+
+    // ── Questions ───────────────────────────────────────────────
+    const questions = [
+        { q: "Por que o sol aquece o chão, mas não aquece o vidro da janela da mesma forma?", a: ["O vidro é transparente e a luz passa sem ser absorvida", "O vidro reflete todo o calor de volta", "O vidro é feito de ar congelado"], c: 0 },
+        { q: "Qual camada está em contato direto com a crosta terrestre?", a: ["Troposfera", "Estratosfera", "Mesosfera"], c: 0 },
+        { q: "Onde fica a camada de ozônio?", a: ["Troposfera", "Estratosfera", "Termosfera"], c: 1 },
+        { q: "Gás mais abundante na atmosfera (78%):", a: ["Oxigênio", "Nitrogênio", "Gás Carbônico"], c: 1 },
+        { q: "O ar quente é menos denso, por isso ele...", a: ["Sobe", "Desce", "Desaparece"], c: 0 },
+        { q: "Onde os meteoros se incendeiam pelo atrito?", a: ["Mesosfera", "Exosfera", "Troposfera"], c: 0 },
+        { q: "Camada mais externa da atmosfera:", a: ["Exosfera", "Termosfera", "Estratosfera"], c: 0 },
+        { q: "Aviões voam na Estratosfera para evitar o mau tempo da:", a: ["Troposfera", "Mesosfera", "Exosfera"], c: 0 },
+        { q: "Gás vital para a nossa respiração:", a: ["Nitrogênio", "Oxigênio", "Hélio"], c: 1 },
+        { q: "O ar condicionado esfria o quarto porque o ar frio:", a: ["Desce por ser mais denso", "Sobe por ser mais leve", "Fica parado no teto"], c: 0 },
+        { q: "O aquecedor fica no chão porque o ar quente:", a: ["Sobe por ser menos denso", "Desce por ser pesado", "Vira vapor"], c: 0 },
+        { q: "Porcentagem aproximada de Oxigênio no ar:", a: ["21%", "78%", "1%"], c: 0 },
+        { q: "Quantas camadas principais formam a atmosfera?", a: ["5", "3", "10"], c: 0 },
+        { q: "Ar 'rarefeito' significa que:", a: ["Há poucas moléculas de ar", "O ar é muito úmido", "Não existe ar"], c: 0 },
+        { q: "O efeito estufa ocorre na:", a: ["Troposfera", "Mesosfera", "Exosfera"], c: 0 },
+        { q: "O ar frio é mais pesado (denso) que o quente?", a: ["Sim", "Não", "Só se estiver ventando"], c: 0 },
+        { q: "A Aurora Boreal acontece na:", a: ["Termosfera", "Estratosfera", "Troposfera"], c: 0 },
+        { q: "Camada que bloqueia raios UV perigosos:", a: ["Estratosfera", "Troposfera", "Mesosfera"], c: 0 },
+        { q: "O ar expirado pelos humanos é:", a: ["Mais quente que o ambiente", "Mais frio que o ambiente", "Igual ao ambiente"], c: 0 },
+        { q: "Vento é o ar se movendo de uma área de:", a: ["Alta pressão para baixa pressão", "Baixa pressão para alta", "Luz para a sombra"], c: 0 },
+        { q: "O som viaja no espaço vazio?", a: ["Não, precisa de ar (meio material)", "Sim, normalmente", "Só se for muito alto"], c: 0 },
+        { q: "Satélites de TV orbitam na:", a: ["Exosfera", "Troposfera", "Mesosfera"], c: 0 },
+        { q: "A pressão atmosférica é MENOR:", a: ["No alto de uma montanha", "Na praia", "No fundo de um poço"], c: 0 },
+        { q: "Camada onde a temperatura aumenta drasticamente:", a: ["Termosfera", "Mesosfera", "Estratosfera"], c: 0 },
+        { q: "Gás que as plantas absorvem na fotossíntese:", a: ["Oxigênio", "Gás Carbônico", "Nitrogênio"], c: 1 }
+    ];
+
+    let currentIdx = 0, score = 0, balloonH = 18, playerName, playerClass, lastResult;
+    const BALLOON_TOTAL = 25;
+
+    // ── Helpers ─────────────────────────────────────────────────
+    function show(id)  { document.getElementById(id).classList.remove('hidden'); }
+    function hide(id)  { document.getElementById(id).classList.add('hidden'); }
+
+    function changeBg(c1, c2) {
+        document.body.style.background = `linear-gradient(to top, ${c1} 0%, ${c2} 100%)`;
+    }
+
+    // ── Start ────────────────────────────────────────────────────
+    function startGame() {
+        playerName  = document.getElementById('player-name').value.trim();
+        playerClass = document.getElementById('player-class').value;
+        if(!playerName || !playerClass) { alert("Preencha nome e turma!"); return; }
+
+        currentIdx = 0; score = 0; balloonH = 18;
+        questions.sort(() => Math.random() - 0.5);
+
+        hide('setup-screen'); show('quiz-screen');
+        showQuestion();
+    }
+
+    function openRankingOnly() { hide('setup-screen'); show('ranking-screen'); loadRanking(); }
+    function goBackToSetup()   { hide('ranking-screen'); hide('finish-screen'); show('setup-screen'); }
+
+    // ── Quiz ─────────────────────────────────────────────────────
+    function showQuestion() {
+        const q = questions[currentIdx];
+        const pct = (currentIdx / 25) * 100;
+        document.getElementById('progress-bar').style.width = pct + '%';
+        document.getElementById('current-q').innerText = currentIdx + 1;
+        document.getElementById('score-live').innerText = score;
+        document.getElementById('question-text').innerText = q.q;
+        document.getElementById('news-flash').innerText = '';
+
+        const container = document.getElementById('options-container');
+        container.innerHTML = '';
+        q.a.forEach((opt, i) => {
+            const b = document.createElement('button');
+            b.className = 'btn btn-option';
+            b.innerText = opt;
+            b.onclick = () => check(i);
+            container.appendChild(b);
+        });
+    }
+
+    function check(choice) {
+        const correct = questions[currentIdx].c;
+        const news = document.getElementById('news-flash');
+        const btns = document.querySelectorAll('.btn-option');
+        btns.forEach(b => b.disabled = true);
+        btns[correct].classList.add('correct');
+
+        if(choice === correct) {
+            score++; balloonH = Math.min(balloonH + 12, 82);
+            news.innerText = "✅ Correto! Ar quente impulsiona o balão!";
+        } else {
+            btns[choice].classList.add('wrong');
+            balloonH = Math.max(balloonH - 12, 5);
+            news.innerText = `❌ Resposta: ${questions[correct].a[correct]}`;
+        }
+
+        document.getElementById('score-live').innerText = score;
+        document.getElementById('balloon').style.bottom = balloonH + '%';
+
+        setTimeout(() => {
+            currentIdx++;
+            if(currentIdx < 25) showQuestion();
+            else finish();
+        }, 1800);
+    }
+
+    // ── Finish ───────────────────────────────────────────────────
+    async function finish() {
+        hide('quiz-screen');
+
+        const pct  = Math.round((score / 25) * 100);
+        const msgs = [
+            [90, "🚀 Excelente! Você domina a atmosfera!"],
+            [70, "🌤️ Muito bem! Continue estudando!"],
+            [50, "☁️ Bom começo! Revise as camadas."],
+            [0,  "🌧️ Não desanime! Tente novamente!"]
+        ];
+        const msg = msgs.find(([min]) => pct >= min)[1];
+
+        document.getElementById('final-score').innerText = `${score}/25`;
+        document.getElementById('final-msg').innerText = msg;
+        show('finish-screen');
+
+        // Save to Firebase
+        const now = new Date();
+        lastResult = {
+            name:  playerName,
+            class: playerClass,
+            score,
+            pct,
+            time:  now.toLocaleString('pt-BR', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' }),
+            createdAt: null
+        };
+
+        if(window._firebaseReady) {
+            try {
+                lastResult.createdAt = window._serverTimestamp();
+                await window._addDoc(window._collection(window._db, 'ranking'), lastResult);
+            } catch(e) {
+                console.warn('Firebase save error:', e);
+                fallbackSave(lastResult);
+            }
+        } else {
+            fallbackSave(lastResult);
+        }
+    }
+
+    function fallbackSave(r) {
+        let h = JSON.parse(localStorage.getItem('rankingFallback') || '[]');
+        h.push(r); localStorage.setItem('rankingFallback', JSON.stringify(h));
+    }
+
+    // ── Ranking ──────────────────────────────────────────────────
+    async function loadRanking() {
+        const wrap = document.getElementById('ranking-tables');
+        wrap.innerHTML = '<p class="loading-msg">Carregando ranking…</p>';
+
+        let rows = [];
+
+        if(window._firebaseReady) {
+            try {
+                const q = window._query(
+                    window._collection(window._db, 'ranking'),
+                    window._orderBy('score', 'desc'),
+                    window._limit(30)
+                );
+                const snap = await window._getDocs(q);
+                snap.forEach(doc => rows.push(doc.data()));
+            } catch(e) {
+                console.warn('Firebase read error:', e);
+                rows = getFallbackRows();
+            }
+        } else {
+            rows = getFallbackRows();
+        }
+
+        // merge local fallback too
+        const fb = JSON.parse(localStorage.getItem('rankingFallback') || '[]');
+        rows = [...rows, ...fb].sort((a,b) => b.score - a.score).slice(0, 30);
+
+        if(rows.length === 0) { wrap.innerHTML = '<p class="loading-msg">Nenhum resultado ainda. Seja o primeiro!</p>'; return; }
+
+        let html = `<table>
+            <thead><tr><th>#</th><th>Nome</th><th>Turma</th><th>Pontos</th><th>%</th><th>Data</th></tr></thead><tbody>`;
+        rows.forEach((r, i) => {
+            const isMe = lastResult && r.name === lastResult.name && r.time === lastResult.time ? 'class="me"' : '';
+            const pct  = r.pct || Math.round((r.score/25)*100);
+            html += `<tr ${isMe}><td>${i+1}</td><td>${r.name}</td><td>${r.class}</td><td>${r.score}</td><td>${pct}%</td><td>${r.time}</td></tr>`;
+        });
+        wrap.innerHTML = html + '</tbody></table>';
+    }
+
+    function getFallbackRows() {
+        return JSON.parse(localStorage.getItem('rankingFallback') || '[]').sort((a,b)=>b.score-a.score);
+    }
+
+    function goToRanking() { hide('finish-screen'); show('ranking-screen'); loadRanking(); }
+
+    async function clearRanking() {
+        const pass = prompt("Digite a senha do professor:");
+        if(pass !== "professor123") { alert("Senha incorreta."); return; }
+        // clear localStorage fallback
+        localStorage.removeItem('rankingFallback');
+        alert("Ranking local zerado.\n\nPara apagar do Firebase acesse o console em:\nhttps://console.firebase.google.com → Firestore → ranking → Delete collection");
+        location.reload();
+    }
+
+    // Expose globals
+    window.startGame      = startGame;
+    window.changeBg       = changeBg;
+    window.goToRanking    = goToRanking;
+    window.goBackToSetup  = goBackToSetup;
+    window.openRankingOnly = openRankingOnly;
+    window.clearRanking   = clearRanking;
+    </script>
+</body>
+</html>
